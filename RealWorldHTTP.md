@@ -22,6 +22,38 @@ tags:
 ```bash
 go run echo-server.go
 ```
+
+## http 기본 구조
+
+```bash
+# 헤더와 바디는 빈 개행으로 구분한다.
+# 요청
+[메서드] [경로] [프로토콜]
+[헤더]
+
+[바디]
+
+# 요청 ex
+POST / HTTP/1.1
+Host: localhost:18888
+User-Agent: curl/7.68.0
+
+title=The%20%26%20Art&author=Bob
+
+# 응답
+[프로토콜] [스테이터스 코드 + 메시지]
+[헤더]
+
+[바디]
+
+# 응답 ex
+HTTP/1.1 200 OK
+Content-Length: 32
+Content-Type: text/html; charset=utf-8
+
+<html><body>hello</body></html>
+```
+
 ## curl 사용 샘플
 
 ```bash
@@ -200,3 +232,127 @@ curl -d @test.json -H "Content-Type: application/json"  http://localhost:18888
 
 * 메서드와 경로, 헤더, 바디, 스테이터스 코드는 HTTP의 기초
 * 이는 HTTP/2 에서도 바뀌지 않았음.
+
+# Ch02 HTTP/1.0의 시맨틱스: 브라우저 기본 기능의 이면
+
+## 기본 form 전송 (x-www-form-urlencoded)
+
+* form의 기본 전송 MIME 타입
+* RFC에 x-www-form-urlencoded 타입인 경우의 파일전송동작은 정의되지 않았음.
+  * 브라우저에서 해보면 파일명만 전달되고 파일은 전송되지 않음.
+
+```html
+<!--
+- 브라우저는 RFC 1866에서 책정한 변환 포맷으로 변한한다.
+- 알파벳, 숫자, 별(*), 하이픈(-), 마침표(.), 언더스코어(_) 의 여섯 종류 문자 외에는 변환 필요
+- 예를 들어 공백은 + 로 바뀜
+- 값으로 들어가는 =은 %3D, &는 %26으로 바뀌고 실제 구분자는 =, & 로 전달되므로 읽는 쪽에서 이를 구분할 수 있음
+
+title=The & Art, author=Bob으로 요청한 경우의 바디
+title=The+%26+Art&author=Bob
+-->
+<form action="http://localhost:18888" method="POST">
+  <input name="title"/>
+  <input name="author"/>
+  <input type="submit"/>
+</form>
+
+<!-- 
+ - method가 GET일 경우 바디가 아니라 쿼리로서 URL에 부여함 (RFC 1866 정의)
+ GET /?title=The+%26+Art&author=Bob HTTP/1.1
+-->
+<form action="http://localhost:18888" method="GET">
+<!-- 이하 동일 -->
+
+<!--
+쓸 일은 없겠으나 form은 text/plain 타입도 지원한다.
+변환을 하지않으며, 개행으로 구분해 값을 전송한다.
+
+title=The & Art
+author=Bob
+-->
+<form action="http://localhost:18888" method="POST" enctype="text/plain">
+<!-- 이하 동일 -->
+```
+```bash
+# -d 는 인코딩을 하지 않고 그대로 보내므로 아래 예의 "The & Art" 같은 인코딩이 필요한건 보내면 안 된다.
+curl -d title="The & Art" -d author="Bob" http://localhost:18888
+
+# --data-urlencode 옵션은 브라우저와 유사하게 인코딩해서 보냄. 단, 브라우저와 달리 RFC 3986 에서 정의한 변환 방식을 사용함
+# 예를 들어 공백이 + 가 아닌 %20 으로 변환됨
+
+# title=The%20%26%20Art&author=Bob
+curl --data-urlencode title="The & Art" --data-urlencode author="Bob" http://localhost:18888
+```
+
+* 웹 브라우저는 form 인코딩에 RFC 1866, curl은 데이터 인코딩에 RFC 3986 을 사용하지만 동일 알고리즘으로 복원할 수 있음
+
+## form을 이용한 파일 전송 (multipart/form-data)
+
+* RFC 1867에서 정의
+* HTTP 바디는 일반적으로 한 파일 전체를 의미하고 단순히 Content-Length 만큼 읽으면 됨.
+* 반면에 멀티파트는 이름 그대로 한 번의 요청으로 복수의 파일을 전송할 수 있음. 받는 쪽에서 복수의 파일을 구분하기 위한 방법이 필요함. 이를 위해 Content-Type 헤더에 boundary 라는 경계문자열을 부여함.
+
+```html
+<!-- 
+- Content-Type에 부여되는 boundary 는 각 클라이언트가 랜덤으로 생성함
+- boundary 값으로 body의 데이터를 분리하여 해석할 수 있음
+- body 끝에는 [boundary값]-- 으로 끝남
+- boundary로 구분되는 각 Part는 각각 헤더+빈줄+콘텐츠로 구성됨
+- 각 파트에 Content-Disposition 헤더가 있는데 이를 통해 각 파트를 정의함
+  - 내 의견) Disposition 은 기질, 성향, 배치 라는 뜻. 책 번역은 기질,성질이라고 해놨는데 배치(arrangement) 가 더 적절한 해석이라고 생각한다.
+- 파일을 첨부해보면 Content-Type 헤더가 부여됨을 알 수 있음
+
+[헤더들]
+Content-Type: multipart/form-data; boundary=---------------------------340904805324056899591929825476
+[나머지헤더들]
+
+[이하 바디]
+
+-----------------------------340904805324056899591929825476
+Content-Disposition: form-data; name="title"
+
+The & Art
+-----------------------------340904805324056899591929825476
+Content-Disposition: form-data; name="author"
+
+Bob
+-----------------------------340904805324056899591929825476
+Content-Disposition: form-data; name="attachment"; filename="sample.txt"
+Content-Type: text/plain
+
+hello file
+-----------------------------340904805324056899591929825476--  
+-->
+
+<form action="http://localhost:18888" method="POST" enctype="multipart/form-data">
+  <input name="title"/>
+  <input name="author"/>
+  <input name="attachment" type="file">
+  <input type="submit"/>
+</form>
+```
+
+```bash
+# curl은 -d 대신 -F 를 사용하면 multipart/form-data 로 전송함
+# -d, -F는 함께 사용할 수 없음
+# type, filename은 생략가능함. 이 경우 type은 자동 설정되고 filename은 로컬 파일명과 동일
+: '
+Content-Disposition: form-data; name="attachment"; filename="changed.txt"
+Content-Type: application/json
+
+{"hello": "world"}
+'
+curl -F "title=The & Art" -F author=Bob -F "attachment=@test.json;type=application/json;filename=changed.txt" http://localhost:18888
+
+# =<[파일] 형식으로 파일을 첨부하는게 아니라 파일 내용을  보내는것도 가능
+: '
+Content-Disposition: form-data; name="attachment"
+Content-Type: application/json
+
+{"hello": "world"}
+'
+curl -F "title=The & Art" -F author=Bob -F "attachment=<test.json;type=application/json" http://localhost:18888
+
+
+```
