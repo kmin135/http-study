@@ -9,6 +9,7 @@ tags:
 
 * golang으로 서버 파트를 구현하고 curl 로 클라이언트 동작을 테스트하면서 HTTP 를 학습할 수 있는 책. 실습이 많은 점이 좋다.
 * HTTP 2.0, QUIC, WebRTC 등의 주제는 그냥 소개만 하는 수준이라 HTTP 1.1 까지의 학습에 적합함.
+* https://developer.mozilla.org/en-US/docs/Web/HTTP 도 정리가 잘 되어있다. 브라우저별 지원여부나 관련 RFC도 잘 정리 되어있어서 추후 레퍼런스로 참고하기에 매우 적합해보인다.
 
 # Ch01 HTTP/1.0의 신택스: 기본이 되는 네 가지 요소
 
@@ -354,5 +355,165 @@ Content-Type: application/json
 '
 curl -F "title=The & Art" -F author=Bob -F "attachment=<test.json;type=application/json" http://localhost:18888
 
+```
 
+## form 을 이용한 리다이렉트
+
+* 보통은 300번대 스테이터스 코드를 이용해서 리다이렉트를 수행함.
+* 이 방법의 제한사항은
+  * URL은 환경에 따라 길이 제한이 있을 수 있으므로 GET의 쿼리로 보낼 수 있는 데이터 양에는 한계가 있음
+  * 데이터가 URL에 포함되므로 전송 내용이 액세스 로그 등에 남을 수 있음
+* 이런 경우 form 을 이용한 리다이렉트를 사용할 수 있음
+
+```html
+<!-- body의 onload 이벤트를 활용한 간단한 구조 -->
+<body onload="document.forms[0].submit()">
+  <form action="http://localhost:18888/redirect" method="POST">
+    <input type="hidden" name="data" value="i want to send this data" />
+  </form>
+</body>
+```
+
+* 전송가능한 데이터양에 제한이 없으므로 리다이렉트 전송할 데이터가 많을 때 유용함
+* 순간적으로 빈 페이지가 표시될 수 있다는 게 단점.
+> 내 의견 : 이라고 했지만 굳이 onload 이벤트를 안 해도 중간 페이지를 별도로 디자인하고 화면이 다 뜨고 적절한 UI를 보여준 후 리다이렉트해도 되므로 단점이라 볼 건 없는듯.
+* 또 300번대 스테이터스 코드와 달리 클라이언트 환경에서 자바스크립트가 비활성화 되어있으면 자동 전환이 동작하지 않는것도 차이점.
+* SOAP 형식의 조금 큰 XML 데이터를 암호화하여 리다이렉트할 필요가 있는 SAML, OpenID Connect 등에서 활용됨.
+
+## 콘텐트 니고시에이션
+
+* 통신 방법을 최적화하고자 하나의 요청 안에서 서버와 클라이언트가 서로 최고의 설정을 공유하는 시스템이 콘텐트 니고시에이션
+* 아래 4개의 헤더를 사용함
+  * Accept : MIME 타입을 협상함 / 응답 : Content-Type
+  * Accept-Language : 표시 언어 협상 / 응답 : Content-Language 헤더, html 태그
+  * Accept-Charset : 문자셋 / 응답 : Content-Type
+  * Accept-Encoding : 바디압축 / 응답 : Content-Encoding
+
+#### 파일 종류
+
+* `Accept: image/webp,*/*;q=0.8`
+  * webp를 지원하면 webp, 아니면 다른 포맷(우선 순위 0.8) 으로 줄 것을 서버에 요청하는 것
+* q는 품질계수 (0~1, 1이면 생략)
+* 서버는 요청에서 요구한 형식 중에서 우선순위를 해석하여 가장 일치하는 포맷으로 반환함.
+* 서로 일치하는 형식이 없으면 서버가 406 Not Acceptable 오류를 반환함
+
+> 내의견 : 이라고 되어있으나 실제 각종 서버에 엉뚱한 Accept 헤더를 날려보면 그냥 Accept 헤더를 무시하고 서버가 적절히 응답한다. 사용자경험상 더 편하기 때문일듯. 이건 Accept-Language 도 마찬가지. 문자셋과 인코딩도 마찬가지가 아닐까 싶다.
+
+#### 표시 언어 결정
+
+* `Accept-Language: ko-KR,ko;q=0.8,en;q=0.6`
+  * ko-KR, ko, en 의 우선순위로 언어 요청
+* 품질계수는 Accept와 동일
+* 대응되는 헤더로 `Content-Language` 가 있으나 잘 안 쓰임
+
+* HTML의 경우
+```html
+<!-- 대신 html 태그에 lang이 지정되는 경우는 종종 볼 수 있음 -->
+<html lang="ko">
+```
+
+#### 문자셋 결정
+
+* `Accept-Charset: utf-8;windows-949;q=0.7;*;q=0.3`
+  * utf-8, windows-949, 아니면 그 외의 다른 인코딩으로 응답해줄 것을 요청
+* 현대의 모던 브라우저들은 대부분 송신하지 않음. 저자 의견은 브라우저들이 모든 문자셋 인코더를 내장하고 있으므로 미리 네고시에이션을 할 필요가 없어졌기 때문이라 함.
+* 컨텐츠의 문자셋은 `Content-Type: text/html; charset=UTF-8` 처럼 MIME타입과 세트로 `Content-Type` 에 실려 통지됨
+* 사용할 수 있는 문자셋은 [IANA](https://www.iana.org/assignments/character-sets/character-sets.xhtml)에서 관리함
+
+* HTML의 경우
+```html
+<!-- RFC 1866 HTML/2.0 스타일 -->
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+
+<!-- HTML5 스타일 -->
+<meta charset="UTF-8">
+```
+
+* 구글 홈페이지의 HTML 시작부분
+```html
+<!doctype html>
+<html itemscope="" itemtype="http://schema.org/WebPage" lang="ko">
+  <head>
+    <meta charset="UTF-8">
+    <!-- 이하 생략 -->
+```
+
+#### 압축을 이용한 통신 속도 향상
+
+* 압축의 효과가 큰 리소스(텍스트 등)라면 압축을 통해 통신 비용(시간, 금액 등)을 절감할 수 있다.
+* `Accept-Encoding: deflate, gzip`
+  * deflate 또는 gzip 으로 압축하여 응답해줄 것을 요청
+* 서버는 `Accept-Encoding` 헤더를 보고 지원가능한 인코딩으로 압축하여 응답한다.
+*  `Content-Encoding: gzip`
+  *  서버는 인코딩에 사용한 알고리즘을 `Content-Encoding` 헤더에 담아 응답한다.
+  *  리소스가 인코딩된 경우의 `Content-Length` 값은 압축된 파일의 크기임
+* 웹 브라우저에서 사용하는 주요 압축 알고리즘
+  * deflate, gzip, br
+  * compress, exi, identity (무압축을 선언하는 예약어)
+  * sdch : Shared Dictionary Compressing for HTTP. 미리 교환한 사전을 이용한 압축방식. 크롬에서 쓰인다고 함 (IANA 등록 표준X).
+    * 이와 같은 공유 사전 방식의 압축은 HTTP/2의 헤더 압축에도 쓰임.
+* 이와 같은 Content-Encoding 은 압축을 통해 콘텐츠 크기를 줄이는 방식
+* Transfer-Encoding 은 통신 경로를 압축하는 방법인데 그다지 쓰이지 않음.
+
+```bash
+# 버전에 따라 다른데 curl/7.68.0 에서는 --compressed 옵션을 사용하면 헤더에
+#  Accept-Encoding: deflate, gzip, br
+# 을 추가한다.
+curl --compressed http://localhost:18888
+```
+
+> 내의견 :  이와 반대로 서버가 응답할 때 클라이언트에 Accept-Encoding을 주고 클라이언트에서 서버로 리소스를 보낼 때 압축해서 보내는 방식도 논의되고 있다고함. 21년기준으로 어떨지는 모르겠음. 근데 이건 자체구현하던 서버 기능으로 지원하면 될 일이라 필요에 따라 찾아서 적용하면 될 듯. 예를 들면 json 데이터를 서버로 빈번하게 보내는 사이트에서 유용할듯.
+
+## 쿠키
+
+* 웹사이트의 정보를 브라우저에 저장하는 작은 파일.
+* 헤더를 기반으로 구현됨
+* HTTP는 stateless 하지만 쿠키를 통해 stateful 처럼 보이게 서비스를 제공할 수 있음 
+
+```
+# 서버가 클라이언트에게 쿠키를 저장하도록 헤더에 지정한 경우
+Set-Cookie: LAST_ACCESS_DATE=Jul/20/2019
+Set-Cookie: LAST_ACCESS_TIME=12:04
+```
+
+* 기본적으로 `이름=값` 의 형식
+* 클라이언트는 이 값을 저장해두고 다음 요청에는 아래와 같이 전달
+
+```
+Cookie: LAST_ACCESS_DATE=Jul/20/2019; LAST_ACCESS_TIME=12:04
+```
+
+```bash
+# -c : 수신한 쿠키를 지정한 파일에 저장
+# -b : 지정한 파일에서 쿠키를 읽어와 전송
+# -c, -b를 동시에 사용하면 브라우저처럼 동시에 송수신가능
+curl -v -c cookie.txt -b cookie.txt http://localhost:18888/cookie
+
+# -b 는 개별 쿠키 추가에도 사용할 수 있음
+curl -v -c cookie.txt -b cookie.txt -b "ABC=MYCOOKIE" http://localhost:18888/cookie
+```
+
+#### 쿠키의 잘못된 사용법
+
+* 쿠키는 브라우저 설정에 따라 언제든지 삭제될 수 있고 심지어 아예 저장되지 않을 수도 있음. 따라서 사라지더라도 문제가 없는 정보나 서버로부터 복구 가능한 데이터를 저장하는데 적합함.
+* 쿠키의 최대 크기는 4KB 로 정해져 있으므로 주의 필요.
+* 쿠키는 항상 통신에 부가되므로 그만큼 전체적인 통신 비용을 높임.
+* HTTP 에서는 평문으로 노출되므로 주의. 또한 암호화를 하더라도 사용자가 자유롭게 제어가능하므로 민감한 정보를 저장하는 용도로 사용하면 안 됨
+
+#### 쿠키에 제약을 주다 - 쿠키 옵션
+
+* 기본 양식인 `이름=값` 뒤에 세미콜론을 구분자로 다양한 옵션을 추가할 수 있음.
+  * 대소문자 구분 안 함
+* 설명에서 알 수 있듯 보안을 위한 옵션이 대부분
+  * Expires : 쿠키의 수명설정. `Wed, 26-May-2021 08:11:54 GMT` 형식
+  * Max-Age : 초 단위로 지정. 현재 시각에서 지정된 초수를 더한 시간에 쿠키가 만료됨.
+  * Domain : 클라이언트에서 쿠키를 전송할 대상 서버. 생략하면 쿠키 발행 서버.
+  * Path : 클라이언트에서 쿠키를 전송할 대상 서버의 경로. 생략하면 쿠키를 발행한 서버 경로.
+  * Secure : https 일 때만 서버로 쿠키를 전송함.
+  * HttpOnly : 자바스크립트 엔진으로부터 쿠키를 숨김. XSS 등의 공격에 대한 방어책.
+  * SameSite : RFC에는 없고 크롬에 있는 기능. 같은 오리진(출처)의 도메인에 전송하게 함.
+
+```bash
+# ex
+Set-Cookie: 1P_JAR=2021-04-26-08; expires=Wed, 26-May-2021 08:11:54 GMT; path=/; domain=.google.com; Secure; SameSite=none
 ```
