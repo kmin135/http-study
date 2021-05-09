@@ -714,3 +714,91 @@ Vary: User-Agent, Accept-Language
 ```
 
 * 참고로 User-Agent 는 관례일 뿐 정규화된 정보가 아니므로 판정이 틀릴 수도 있음.  2017년 구글 가이드라인에서는 같은 콘텐츠 (HTML, CSS, JS) 를 모든 브라우저에 배포하고, 브라우저가 필요한 설정을 선택하는 반응형 웹 디자인을 권장함.
+
+## 리퍼러 (Referer)
+
+* 사용자가 어느 경로로 서버에 도달했는지 파악할 수 있도록 클라이언트가 서버에 보내는 헤더.
+* 원래 스펠링은 referrer 인데 RFC 1945 제안 당시의 오자가 남은 것이라고함.
+* GET 파라미터에 개인정보 등 민감한 정보가 있을 경우 리퍼러를 통해 타사이트로 그대로 유출될 수 있으므로 파라미터에 민감한 정보가 노출되지 않도록 해야함.
+* 리퍼러의 용도 예제
+  * 어떤 사이트로부터 우리 서비스로 들어온건지 파악할 때 사용
+  * 이미지가 타사이트에 직접 링크되는 것을 막을 때 사용
+  * CSRF 방어 목적으로도 사용했으나 브라우저에서 리퍼러를 전송하지 않도록 설정할 수도 있으므로 권장하지 않음
+
+```bash
+# 구글에서 검색 후 결과 페이지에서 특정 사이트로 이동하면 해당 요청에는 아래와 같은 Referer 가 실린다.
+Referer: https://www.google.com/
+
+# 구글 검색결과 페이지에는 아래의 referrer 정책이 정의되어있으므로 도메인 이름만 전송되었음을 알 수 있다.
+# ... <meta content="origin" name="referrer"> ...
+```
+
+* 스키마 조합과 리퍼러의 유무
+
+|액세스 출발지|액세스 목적지|리퍼러를 전송하는가?|
+|---|---|---|
+|HTTPS|HTTPS|한다|
+|HTTPS|HTTP|하지 않는다|
+|HTTP|HTTPS|한다|
+|HTTPS|HTTPS|한다|
+
+* 대부분의 브라우저는 이 규칙을 준수함. 단, 이 규칙을 엄밀히 적용할 경우 서비스간 연계에 차질이 생기기도 해서 IE, 낮은 버전의 안드로이드 브라우저 등 준수하지 않는 브라우저도 존재함.
+
+---
+
+* 리퍼러 정책 설정 방법 (Referrer 로 오자가 수정됐으므로 주의)
+  * Referrer-Policy 헤더
+  * Content-Security-Policy 헤더
+  * `<meta name="referrer" content="설정값">` 태그
+  * `<a>` 태그 등 몇 가지 요소의 referrerpolicy 속성 및 `rel="noreferrer" 속성
+* 정책 설정 값 예제
+  * no-referrer : 전혀 보내지 않음
+  * no-referrer-when-downgrade : 현재 기본 동작처럼 HTTPS -> HTTP 일 때는 전송하지 않음
+  * same-origin : 동일 도메인 내의 링크에 대해서만 전송
+  * origin : 도메인 이름만 전송
+  * strict-origin : origin과 같지만 HTTPS -> HTTP 일 때는 전송하지 않음
+  * origin-when-crossorigin : 같은 도메인 내에서는 완전한 리퍼러를, 다른 도메인에는 도메인 이름만 전송
+  * strict-origin-when-crossorigin : origin-when-crossorigin :과 같지만 HTTPS -> HTTP 일 때는 전송하지 않음
+  * unsafe-url : 항상 전송
+
+---
+
+* Content-Security-Policy 예제
+* CSP 헤더는 다양한 보안 설정을 한번에 변경할 수 있는 헤더임. 10장에서 자세히 설명함.
+
+```bash
+Content-Security-Policy: referrer origin
+```
+
+## 검색 엔진용 컨텐츠 접근 제어
+
+* 크롤러(로봇, 봇, 스파이더 등)의 접근을 제어하는 방법을 주로 다음 두 가지가 쓰임
+  * robots.txt
+  * sitemap
+* 미국 재판에서는 robots.txt 가 법적 효력을 가진다는 판례가 여러개 있다고 함. 자세한건 robots.txt 웹사이트 참고
+
+```bash
+# robots.txt 예제
+User-agent: *
+Disallow: /service/
+
+# 메타태그로도 설정 가능
+# 아래 예제는 검색엔진이 인덱스하는 것을 거부함을 의미
+<meta name="robots" content="noindex">
+```
+---
+
+* sitemap은 웹사이트에 포함된 페이지 목록과 메타데이터를 제공하는 XML 파일
+  * https://www.sitemaps.org
+* 주로 검색 엔진에 정보를 제공하는 용도임
+
+## 마치며
+
+* HTTP는 효율적으로 계층화되어 있음. 통신의 데이터 상자 부분은 변하지 않으므로, 규격에서 제안된 새로운 기능이 구현되지 않아도 호환성을 유지하기 쉽도록 되어 있음. 또한 압축 방식 선택 등 브라우저가 규격화되지 않은 방식을 새로 지원해도 가능하다면 사용할 수 있음. 토대가 되는 문법(신택스)과 그 문법을 바탕으로 한 헤더의 의미 해석(시맨틱스)이 분리되어 있으므로 상위 호환성과 하위 호환성이 모두 유지됨.
+
+# Ch03 Go 언어를 이용한 HTTP/1.0 클라이언트 구현
+
+* 이 장은 curl 로 해본 예제들을 Go 언어로 구현해보는 파트이므로 별도 정리는 생략함
+
+# Ch04 HTTP/1.1의 신택스: 고속화와 안정성을 추구한 확장
+
