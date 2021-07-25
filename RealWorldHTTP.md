@@ -1026,3 +1026,54 @@ ECDHE-ECDSA-AES256-GCM-SHA384 TLSv1.2 Kx=ECDH     Au=ECDSA Enc=AESGCM(256) Mac=A
 ECDHE-RSA-AES256-GCM-SHA384 TLSv1.2 Kx=ECDH     Au=RSA  Enc=AESGCM(256) Mac=AEAD
 # ...
 ```
+
+* 암호화 스위트 조합 설명
+  * ECDHE-RSA-AES256-GCM-SHA384 : 암호화 스위트의 이름
+  * TLSv1.2 : 암호가 지원된 프로토콜 버전
+  * Kx=ECDH : 교환 키 알고리즘/서명 알고리즘 `ex. DH/RSA, ECDH/ECDSA`
+  * Au=RSA : 인증 알고리즘 `ex. RSA/ECDSA`
+  * Enc=AESGCM(256) : 레코드 암호 알고리즘 `ex. AES-GCM, CHACHA20-POLY1305`
+  * Mac : 메시지 서명 `ex. AEAD, SHA386`
+
+---
+
+* TLS 1.3을 예상하고 책정된 HTTP/2의 RFC 7540에는 사용해서는 안 될 암호화 스위트의 블랙리스트가 정의되어 있음
+  * 몇몇 암호(DES, RC4, MD5, SHA-1) 가 안전하지 않다고 간주됐고, 안전한 암호라도 키 길이가 짧은 것은 강도 부족으로 보고 선택 사항에서 제외됨
+  * 스트림 암호인 RC4, 블록 암호인 MAC 후 암호화 방식도 취약하다고 보고 인증된 암호(AEAD)만 사용하도록 함
+  * 공통 키 알고리즘에서 쓸 수 있는게 AES 뿐이었기 때문에 ChaCha20-Poly1305 라는 대안 알고리즘이 추가됨. AES보다 크기와 계산 부하가 적음.
+
+--- 
+
+* 모질라에서는 권장되는 암호화 스위트 목록을 제공함
+  * https://wiki.mozilla.org/Security/Server_Side_TLS
+  * https://ssl-config.mozilla.org/
+    * 웹서버와 권장 설정에 따라 SSL 설정 파일 예제를 제공함
+
+#### 프로토콜 선택
+
+* TLS는 애플리케이션 계층 프로토콜을 선택하는 확장 기능을 제공함
+* 현재는 ALPN(Application-Layer Protocol Negotiation) 방식 (RFC 7301) 이 주류임
+* ALPN에서는 TLS의 최초 핸드셰이크 시 (ClientHello) 클라이언트가 서버에 '클라이언트가 이용 가능한 프로토콜 목록' 을 보냄. 서버는 그에 대한 응답 (ServerHello) 으로 키 교환을 하고 인증서와 함께 선택한 프로토콜을 보냄. (콘텐츠 니고시에이션 방식처럼 프로토콜을 니고시에이션 하는 것)
+* 선택 가능한 프로토콜 목록은 IANA 에서 관리함
+  * https://www.iana.org/assignments/tls-extensiontype-values/tls-extensiontype-values.xhtml#alpn-protocol-ids
+
+
+```bash
+# verbose 옵션을 주고 https 제공 사이트 curl을 해보면...
+curl -v https://google.com
+```
+```bash
+# 아래처럼 h2 (HTTP/2 over TLS() 가 선택되었음을 알 수 있음
+# ...
+* ALPN, offering h2
+* ALPN, offering http/1.1
+# ...
+* ALPN, server accepted to use h2
+```
+
+* TLS를 사용하면 중간에 프록시의 간섭을 받지 않고, 프로토콜 버전을 사전에 서버와 조정함으로써 전혀 호환성이 없는 프로토콜도 이용할 수 있음
+* 참고로 h2c는 TLS 연결이 되었지만 TLS를 사용하지 않는 프로토콜을 이용한다는 의미로서, 실제로 쓰진 않지만 예약만 되어있음.
+
+#### TLS가 지키는 것
+
+* TLS는 통신 경로의 안전을 지키기 위한 구조. 클라이언트와 서버간 통신 경로를 신뢰할 수 없는 상태에서도 중간자가 도청, 조작, 사칭을 할 수 없는 안전한 통신을 제공함.
