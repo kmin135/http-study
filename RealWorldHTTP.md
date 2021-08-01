@@ -1077,3 +1077,73 @@ curl -v https://google.com
 #### TLS가 지키는 것
 
 * TLS는 통신 경로의 안전을 지키기 위한 구조. 클라이언트와 서버간 통신 경로를 신뢰할 수 없는 상태에서도 중간자가 도청, 조작, 사칭을 할 수 없는 안전한 통신을 제공함.
+
+## PUT 메서드와 DELETE 메서드의 표준화
+
+* PUT, DELETE는 HTTP/1.0 에서는 옵션이었고 1.1부터 정식 메서드가됨
+* 이로써 CRUD에 대응되는 POST, GET, PUT, DELETE 를 모두 가지게 됨
+* PUT, DELETE는 form으로는 보낼 수 없고 XMLHttpRequest를 사용해야함
+
+## OPTIONS, TRACE, CONNECT 메서드 추가
+
+* OPTIONS : 서버가 처리가능한 메서드 목록을 반환함
+```bash
+curl -X OPTIONS -v [OPTIONS 헤더를 허용하는 호스트]
+
+# ...
+Content-Length: 0
+# Allow 헤더에 사용 가능한 메서드 정보가 들어있음
+Allow: OPTIONS, GET, POST, HEAD
+# ...
+```
+* 하지만 대개의 서버는 OPTIONS 메서드를 꺼두므로 쓸 일은 거의 없음 (구글에 보내보면 405 Not Allowed가 뜸)
+* 브라우저가 다른 서버에 요청을 보낼 때, 사전 확인에 사용되는 경우가 있다고함 (10장의 CORS 에서 다룸)
+
+---
+
+* TRACE : 서버에 TRACE 요청을 보내면 서버는 Content-Type에 `message/http` 를 설정하고 스테이터스 코드 `200 OK` 를 붙여 요청 헤더와 바디를 그대로 반환함
+* 그러나 TRACE XST (cross-site tracing) 라는 취약성이 알려지면서 현재는 대부분의 서버에서 `405 Not Allow` 응답 처리함
+* 현재는 브라우저에서도 XMLHttpRequest로 TRACE 메서드를 보내는 것을 허용하지 않는다고 함.
+
+--- 
+
+* CONNECT : HTTP 프로토콜상에 다른 프로토콜의 패킷을 흘릴 수 있게 함. 프록시 서버를 거쳐 대상 서버에 접속하는 것을 목적으로 함.
+* 주로 https 통신을 중계하는 용도로 사용함
+* 아무거나 무조건 통과시키는 프록시는 맬웨어가 메일을 보내는 용도 등으로 악용될 수 있으므로 적절한 보안 설정 필요.
+```bash
+# squid : 오픈 소스 프록시, 웹 캐시 서버
+docker run -it --rm -p 3128:3128 datadog/squid
+
+curl -x http://localhost:3128 -v https://www.google.com
+```
+```bash
+*   Trying 127.0.0.1:3128...
+* TCP_NODELAY set
+* Connected to localhost (127.0.0.1) port 3128 (#0)
+* allocate connect buffer!
+* Establish HTTP proxy tunnel to www.google.com:443
+# 프록시 서버에 CONNECT 메서드로 www.google.com (https) 에 연결해달라고 요청
+> CONNECT www.google.com:443 HTTP/1.1
+> Host: www.google.com:443
+> User-Agent: curl/7.68.0
+> Proxy-Connection: Keep-Alive
+> 
+# 프록시 서버는 요청한 연결이 맺어졌음을 반환
+< HTTP/1.1 200 Connection established
+< 
+* Proxy replied 200 to CONNECT request
+* CONNECT phase completed!
+# ...
+# 이후로는 기존과 동일한 일반적인 통신이 이루어짐
+> GET / HTTP/2
+> Host: www.google.com
+> user-agent: curl/7.68.0
+> accept: */*
+# ...
+< HTTP/2 200 
+< date: Sun, 01 Aug 2021 05:21:12 GMT
+< expires: -1
+< cache-control: private, max-age=0
+< content-type: text/html; charset=ISO-8859-1
+< server: gws
+```
