@@ -1147,3 +1147,34 @@ curl -x http://localhost:3128 -v https://www.google.com
 < content-type: text/html; charset=ISO-8859-1
 < server: gws
 ```
+
+## 4.5 프로토콜 업그레이드
+
+* HTTP/1.0, HTTP/1.1 은 텍스트 기반 프로토콜이나 업그레이드 기능을 통해 이진 프로토콜로 교체할 수 있음
+* 다음 세 종류의 업그레이드가 있음
+  1. HTTP -> TLS 로 업그레이드 (TLS/1.1, TLS/1.2 등)
+  2. HTTP -> websocket 으로 업그레이드
+  3. HTTP -> HTTP/2 로 업그레이드 (h2c)
+* 다만 HTTP -> TLS 로 업그레이드는 보안취약점이있고 현재는 모든 통신이 TLS이고 TLS 자체가 갖는 핸드셰이크시의 프로토콜 선택 기능(ALPN)이 있으므로 ALPN사용을 권장함. HTTP/2에서는 프로토콜 업그레이드 기능이 삭제됨. HTTP/2도 TLS 사용을 전제하므로 ALPN 사용을 권장함
+  * HTTP -> TLS로의 업그레이드는 `https://` 로 301 리다이렉트하는 방법으로 업그레이드하는 것을 권장함.
+  * 그 외에 HTTP Strict Transport Security (HSTS) 를 이용한 방법도 있음 (10장)
+* 따라서 현시점에서는 프로토콜 업그레이드는 거의 웹소켓용
+* 업그레이드는 클라이언트, 서버 양측에서 요청할 수 있음.
+
+## 4.6 가상 호스트 지원
+
+* HTTP/1.0 까지는 한 대의 웹서버로 하나의 도메인을 다루는 것이 전제였음.
+* HTTP/1.1 부터는 가상 호스트 기능을 통해 하나의 웹서버로 복수의 도메인을 다룰 수 있음
+* 클라이언트는 Host헤더에 서버 이름을 명시하고 서버는 이를 통해 어디로 보낼지 구분할 수 있음
+```
+NameVirtualHost *:80
+
+<VirtualHost *:80>
+    ServerName seoul.example.com
+    DocumentRoot /www/seoul
+</VirtualHost>
+<VirtualHost *:80>
+    ServerName suwon.example.com
+    DocumentRoot /www/suwon
+</VirtualHost>
+```
