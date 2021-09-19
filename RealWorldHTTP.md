@@ -1178,3 +1178,111 @@ NameVirtualHost *:80
     DocumentRoot /www/suwon
 </VirtualHost>
 ```
+
+## 4.7 청크 (chunk)
+
+* 데이터를 한꺼번에 전송하지 않고 작게 나눠서 전송하는 방식
+  * 스트리밍 업로드, 다운로드
+* 동영상 스트리밍을 하거나 검색 엔진이 찾아낸 순서대로 반환하는 등의 상황에서 활용 가능
+* 서버 입장에서는 전송에 필요한 블록만 메모리에 로드해서 전송하므로 1GB 짜리 파일을 제공하기 위해 메모리 1GB를 사용하지 않아도 됨
+* 클라이언트측에서는 서버 측에서 마지막 데이터가 준비가 됐을 무렵엔 그전까지의 데이터는 이미 전송이 끝났으므로 리드 타임을 짧게할 수 있음. 이미지라면 다운로드된 부분부터 표시하거나 인터레이스 방식 표시도 가능하므로 사용자에 대한 응답 속도도 빨라짐.
+
+```bash
+# 10MB 짜리 테스트용 파일 생성
+dd if=/dev/zero of=test.bak bs=1 count=0 seek=10M
+
+# curl에서는 파일전송옵션 (-T)와 Transfer-Encoding 헤더를 설정하여 청크 업로드를 할 수 있음.
+curl -T test.bak -H "Transfer-Encoding: chunked" http://localhost:18888
+```
+```
+PUT /test.bak HTTP/1.1
+Host: localhost:18888
+Transfer-Encoding: chunked
+Accept: */*
+Expect: 100-continue
+User-Agent: curl/7.68.0
+
+8000
+(32KB분의 데이터)
+8000
+(32KB분의 데이터)
+0
+
+```
+* curl로 업로드 해보면 위와 같음
+  * 바디를 보면 16진수로 파일 크기가 표시되고 그 뒤로 지정한 크기만큼의 데이터가 한 세트이고 이 세트가 반복됨. 그리고 마지막행에 0을 보내 청크 전송이 끝났음을 알림.
+  * 교재에는 curl의 청크단위는 8KB씩이라는데 직접해보니 32KB였음. 버전이나 파일크기에 따라 다를지도.
+* 다운로드도 방식은 동일함. 아래는 예제.
+* `Transfer-Encoding: chunked`가 설정된 경우 `Content-Length`를 포함해서는 안 됨.
+```
+HTTP/1.1 200 OK
+Content-Type: video/webm
+Transfer-Encoding: chunked
+
+186a0
+(100KB분의 데이터)
+186a0
+(100KB분의 데이터)
+0
+```
+* 브라우저에서는 청크 전송(업로드)이 안 됨. JS 단에서 파일을 나눠 범위 업로드를 하는 방법이 있으나 표준이 아니라서 서버에서 하나의 파일로 직접 결합해야함.
+
+---
+
+* Trailer 헤더를 활용하여 청크 바디의 끝에 추가 정보를 붙일 수 있음. 주로 청크 전송 중에 동적으로 발생하는 메타정보 (무결성 체크, 디지털 서명, 처리후 상태 등)를 제공하기 위해 사용됨.
+* 구체적으로는 `Trailer: header-names` 와 같이 지정하면 청크의 끝에 지정한 헤더들이 추가로 오는 것을 의미함.
+  * 단, 청크 전송을 시작하기 위해 필요한 헤더들 자체는 Trailer 헤더에 올 수 없음. (Transfer-Encoding, Content-Length, Host, Trailder 등)
+```
+Content-Type: text/plain
+Transfer-Encoding: chunked
+Trailer: Expires
+
+7\r\n
+Mozilla\r\n
+9\r\n
+Developer\r\n
+7\r\n
+Network\r\n
+0\r\n
+Expires: Wed, 21 Oct 2015 07:28:00 GMT\r\n
+\r\n
+```
+* 위 예제를 보면 청크의 끝을 보낸 뒤(0) Trailer 헤더에 지정한 Expires 헤더가 전송되었음을 볼 수 있음.
+* https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Trailer
+
+## 4.8 바디 전송 확인
+
+* 클라이언트는 서버로 데이터를 바로 보내는게 아니라 일단 보내도 도리지 물어보고 나서 보내는 2단계 전송을 할 수 있게 되었음.
+* 우선 클라이언트는 바디를 제외하고 `Expect: 100-continue` 헤더와 원래 보내려던 모든 헤더들을 지정해 문의함. (파일이 없어도 Content-Length 헤더를 함께 보냄)
+* 서버로부터 `100 Continue` 응답이 오면 서버가 준비가 된 것이므로 바디를 붙여 다시 전송함.
+* 서버가 지원하지 않으면 `417 Expectation Failed`가 오기도 함.
+
+---
+
+* curl 은 기본적으로 전송할 콘텐츠의 크기가 1025 bytes 이상이면 `Expect` 헤더를 사용해 2단계로 포스트함.
+  * `curl -H "Expect:" -T file.bak http://localhost:18888` 와 같이 빈 Expect 헤더를 보내면 2단계 확인을 거치지 않고 바로 전송함
+* 아래는 Expect를 사용한 경우의 예제
+  * `curl -v -T test.bak http://localhost:18888`
+  * 먼저 `100 Continue` 응답을 받고 업로드함을 볼 수 있음.
+```
+* Connected to localhost (127.0.0.1) port 18888 (#0)
+> PUT /test.bak HTTP/1.1
+> Host: localhost:18888
+> User-Agent: curl/7.68.0
+> Accept: */*
+> Content-Length: 10000
+> Expect: 100-continue
+>
+* Mark bundle as not supporting multiuse
+< HTTP/1.1 100 Continue
+* We are completely uploaded and fine
+* Mark bundle as not supporting multiuse
+< HTTP/1.1 200 OK
+< Date: Sun, 19 S
+```
+
+---
+
+* TBD 아래링크는 chunked 및 범위 요청에 대한 정리글. 5장에다가 같이 정리할 예정
+* https://cabulous.medium.com/how-http-delivers-a-large-file-78af8840aad5
+* 참고로 유투브에서 영상을 틀어보면 Range 값을 헤더가 아니라 get parameter 로 보내고 있었음. 21-09-19에 테스트한 결과임.
