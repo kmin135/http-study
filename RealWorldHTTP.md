@@ -1281,6 +1281,111 @@ Expires: Wed, 21 Oct 2015 07:28:00 GMT\r\n
 < Date: Sun, 19 S
 ```
 
+# Ch05 HTTP/1.1의 시맨틱스: 확장되는 HTTP의 용도
+
+## 5.1 파일 다운로드 후 로컬에 저장
+
+```bash
+# 아래 헤더가 있으면 브라저는 다운로드 대화상자를 표시하고 파일을 저장함
+# filename의 값이 다운로드 대화상자의 기본값이 됨
+Content-Disposition: attachment; filename=downloadme.pdf
+
+# 웹 표준을 잘 따르는 브라우저라면 아래와 같이 UTF-8로 인코딩된 파일명도 지정가능함.
+# 두번째로 지정한 filename은 하위 호환성을 위해 지정한 것
+Content-Disposition: attachment; filename*=utf-8'' 한글명.pdf; filename=downloadme.pdf
+
+# 아래와 같이 지정하면 브라우저가 파일을 저장하지 않고 명시적으로 브라우저에 인라인 표시한다.
+Content-Disposition: inline
+```
+
+```bash
+# -J : Content-Disposition 헤더의 지시에 따라 파일을 다운로드함
+curl -J http://example.com/down/sample.pdf
+
+# -O : url상의 파일명으로 지정한 파일을 다운로드함
+# 아래를 해보면 index.html 로 다운로드됨
+curl -O http://google.com/index.html
+```
+
+---
+
+* 다운로드 페이지로 이동 후 다운되게하기
+
+1. 다운로드를 클릭하면 다운로드 전용 페이지로 이동한다.
+2. 그 페이지에는 아래와 같은 meta 태그로 실제 다운로드 URL로 refresh 를 지시한다.
+```html
+<meta http-equiv="refresh" content="0;URL=./download">
+```
+3. 다운로드 URL에는 `Content-Disposition` 헤더가 지정되어 있으므로 화면상의 리프레시없이 다운로드가 실행된다.
+
+## 5.2 다운로드 중단과 재시작
+
+* 용량이 큰 파일을 받거나 회신상태가 안 좋거나 하면 다운로드 중 실패할 가능성이 있음
+* 이를 해결하는 방법으로 범위 다운로드가 있음
+* 영상 스트리밍등에도 활용
+* 재다운로드를 하는 경우 대상 파일이 바뀌면 받아둔 데이터는 의미가 없어지는 것에 주의. (Etag 등으로 파일이 변경되었는지 확인할 수 있음)
+
+---
+
+```bash
+# 서버가 지원하면 응답으로 bytes (단위 : byte), 미지원하면 none
+Accept-Ranges: bytes
+```
+
+* 요청과 응답은 다음의 구조가됨
+```bash
+# 요청
+Range: bytes=1000-1999
+
+# 응답
+HTTP/1.1 206 Partial Content
+...
+Content-Length: 1000
+Content-Ranges: 1000-1999/5000
+
+# 응답 (클라이언트가 지정한 범위가 무효인 경우)
+HTTP/1.1 416 Range Not Satisfiable
+...
+Content-Ranges: */5000 
+```
+* 바이트는 0부터세며, 끝 위치도 다운로드 대상임. 한쪽 생략도 가능.
+  * 1000-1999 : 1001번째부터 2000번째까지 (1000)
+  * -999 : 첫 1000 bytes
+* `Content-Ranges`의 `/` 뒤의 숫자는 전체 바이트 수임. 서버가 전체 크기를 알 수 없으면 `*` 로 응답.
+* 그 외에는 일반적인 GET 요청과 동일하며 클라이언트는 다운로드된 다른 데이터 조각과 합쳐 원래 파일을 복원함
+* 콘텐츠가 압축된 경우 압축된 파일에 대한 범위를 의미함.
+* `If-Range` 는 조건부 GET을 위한 헤더로서, ETag나 일시를 지정함. 캐시처럼 조건에 맞는 경우 서버는 범위 지정 액세스를 실행하고 응답을 반환하고, 조건이 맞지 않으면 서버 콘텐츠가 수정된 것으로 보고 파일 전체를 반환함
+
+---
+
+* 아래 처럼 복수의 범위를 지정할 수도 있음.
+* 응답은 멀티파트 폼과 유사한데 멀티파트 폼은 요청에 많은 데이터를 넣으려고 사용했다면 `mutlipart/byteranges` 는 응답에 많은 데이터를 넣을 때 사용함
+
+```bash
+# 복수 범위 요청
+Range: bytes=1000-1999,7000-7999
+
+# 복수 범위 응답
+HTTP/1.1 Parital Content
+...
+Content-Type: multipart/byteranges; boundary=fuwe9wef2j23r3==
+
+--fuwe9wef2j23r3==
+Cotent-Type: application/pdf
+Content-Range: bytes 1000-1999/1000
+
+--fuwe9wef2j23r3==
+Cotent-Type: application/pdf
+Content-Range: bytes 7000-7999/1000
+
+--fuwe9wef2j23r3==--
+
+---
+
+* 서버가 세션별로 대역폭을 제한할 경우 복수의 세션을 만들고 영역을 나눠 세션마다 `Range` 헤더를 활용해서 파일을 병렬로 더 빠르게 받을 수도 있음. 흔히 다운로더라 부르는 앱들이 이런 방법을 사용함.
+* 병렬 다운로드는 서버에 부하를 주므로 권장되지 않음. 브라우저들도 동일 사이트에 대한 최대 세션수에 제한을 거는 경우가 있음.
+* 하지만 회선속도의 전반적인 향상, CDN의 일반화, 동영상의 경우는 스트리밍기술 발전, 정말 큰 파일이라면 토렌트 등의 다른 더 좋은 기술들이 있는 등, 전용다운로더의 필요성은 계속 낮아지고 있음. 
+
 ---
 
 * TBD 아래링크는 chunked 및 범위 요청에 대한 정리글. 5장에다가 같이 정리할 예정
