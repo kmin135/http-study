@@ -1380,6 +1380,8 @@ Content-Range: bytes 7000-7999/1000
 
 --fuwe9wef2j23r3==--
 
+```
+
 ---
 
 * 서버가 세션별로 대역폭을 제한할 경우 복수의 세션을 만들고 영역을 나눠 세션마다 `Range` 헤더를 활용해서 파일을 병렬로 더 빠르게 받을 수도 있음. 흔히 다운로더라 부르는 앱들이 이런 방법을 사용함.
@@ -1388,6 +1390,89 @@ Content-Range: bytes 7000-7999/1000
 
 ---
 
-* TBD 아래링크는 chunked 및 범위 요청에 대한 정리글. 5장에다가 같이 정리할 예정
-* https://cabulous.medium.com/how-http-delivers-a-large-file-78af8840aad5
+* 아래 링크는 chunked 및 범위 요청에 대한 정리
+  * https://cabulous.medium.com/how-http-delivers-a-large-file-78af8840aad5
 * 참고로 유투브에서 영상을 틀어보면 Range 값을 헤더가 아니라 get parameter 로 보내고 있었음. 21-09-19에 테스트한 결과임.
+
+## 5.3 XMLHttpRequest
+
+* 일반적인 브라우저의 HTTP 요청과 유사하나 화면의 전체 리프레시 없이 서버와 통신할 수 있다는 점이 가장 큰 차이점.
+* 이런 특성으로 AJAX(Asynchronous JavaScript And XML) 프로그래밍의 주요 객체로 사용됨
+* https://developer.mozilla.org/en-US/docs/Web/API/XMLHttpRequest/Using_XMLHttpRequest
+
+```javascript
+let xhr = new XMLHttpRequest();
+xhr.open("GET", "https://jsonplaceholder.typicode.com/posts/1", true);
+xhr.onload = function() {
+  if(xhr.status === 200) {
+    console.log(JSON.parse(xhr.responseText));
+  }
+};
+xhr.send();
+```
+
+### XHR 과 브라우저의 HTTP 요청 차이
+
+* 화면이 새로 고침되지 않음
+* GET, POST 외의 메서드를 사용할 수 있음
+* 기본 form은 키와 값이 일대일 매칭되는 형식의 데이터만 전송할 수 있고 응답이 브라우저로 표시되나 XHR 은 text, json, xml, blob 등 다양한 형식을 송수신할 수 있음
+* CORS 등 XHR은 추가적인 보안 제약사항을 가짐
+
+### 다양한 타입 지원
+
+* arraybuffer, blob, document, json, xml, text 등 다양한 responseType을 지원함
+
+```javascript
+// xhr 로 이미지 얻기
+let imgXhr = new XMLHttpRequest();
+imgXhr.open("GET", "/tia.png", true);
+imgXhr.responseType = 'blob';
+imgXhr.onload = function(e) {
+  if(this.status === 200) {
+    let blob = this.response;
+    let img = document.createElement('img');
+    img.onload = function(e) {
+      window.URL.revokeObjectURL(img.src);
+    };
+    img.src = window.URL.createObjectURL(blob);
+    document.body.appendChild(img);
+  }
+}
+imgXhr.send();
+```
+
+### 양방향 통신
+
+* XHR을 이용하면 단방향 통신으로도 양방향 통신인 것처럼 동작할 수 있음
+* 폴링 : 특정 주기로 계속 요청을 보내서 실시간인 것처럼 동작. 구현이 쉬움. 하지만 결국 실시간은 아니고 불필요하게 요청이 발생하므로 낭비가 생김.
+* 롱 폴링 : 클라이언트의 요청을 서버가 바로 응답하지 않고 보류했다가 변경사항이 생기면 응답함.
+  * 내의견 : 불필요하게 소켓을 유지해야하므로 마찬가지로 낭비가 있고 구현하기 나름이겠으나 동기 쓰레드 방식이라면 서버의 쓰레드를 잠식하는 문제도 있음. 또한 결국 HTTP 요청이라 중간의 네트워크 장비가 오래된 연결로 감지하고 끊어버릴 수 있다는 문제도 있음.
+* 결국 XHR을 이용한 양방향 통신은 과거에 사용했던 대안들이고 현재는 WebSocket 이 주로 쓰이며 표준으로는 Server-Sent Events(SSE) 가 쓰임. 
+  * 유명한 라이브러리로는 Socket.io 가 있는데 기본적으로 WS를 사용하되, 브라우저가 지원하지 않으면 자동으로 롱 폴링등으로 양방향 통신처럼 보이게 동작함.
+
+### 보안
+
+* XHR은 사용자 모르게 뒤에서 동작시킬 수 있으므로 더 강력한 보안 정책이 적용됨
+* [동일 출처 정책 (Same origin policy)](https://developer.mozilla.org/ko/docs/Web/Security/Same-origin_policy) 
+  * 스크립트로 아무 사이트에나 요청을 보낼 수 있다면 해킹 사이트등으로 정보가 전달될 수 있으므로 기본적으로 브라우저가 액세스하고 있는 호스트에만 접근할 수 있음
+  * 동일 출처 정책의 컨트롤을 위해 [Cross-Origin Resource Sharing (CORS)](https://developer.mozilla.org/ko/docs/Web/HTTP/CORS) 가 사용됨
+    * 이 때 Access-Control-Allow-Origin 헤더 등이 사용됨
+* 사용 메서드 제한 : CONNECT, TRACE 등 사용 불가
+  * CONNECT 를 허용하면 악의적인 페이지를 열었을 때 메일 서버로 스팸 메일등을 보낼 수 있기 때문
+  * TRACE 는 4장에서 소개한대로 크로스 사이트 트레이싱등에 악용될 수 있으므로 불가
+* 크로스 사이트일 때의 쿠키 전달
+  * 크로스 사이트일 때 기본적으로 쿠키가 전달되지 않음. (개발자도구 상에서 response header에 쿠키가 있어도 제대로 설정이 되지 않음)
+  * https://developer.mozilla.org/en-US/docs/Web/API/XMLHttpRequest/withCredentials
+```javascript
+// 클라이언트는 withCredentials 를 켜야하고
+const xhr = new XMLHttpRequest();
+xhr.open('GET', 'http://example.com/', true);
+xhr.withCredentials = true;
+xhr.send(null); 
+
+// 서버도 Credentials 을 켜주고 정확한 Origin을 설정해야함 (*로 하면 안 될 수 있다고 함)
+res.setHeader('Access-Control-Allow-Origin', 'https://yourdomain.com');
+res.setHeader('Access-Control-Allow-Credentials', 'true'); 
+```
+
+## 5.4 지오로케이션
