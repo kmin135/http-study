@@ -46,11 +46,9 @@ curl -v 로 클라이언트와 대조해보며 테스트하기 좋음
 */
 
 func main() {
-	var httpServer http.Server
 	http.HandleFunc("/", handler)
 	http.HandleFunc("/cookie", cookieHandler)
 	http.HandleFunc("/chunked", handlerChunkedResponse)
-	log.Println("start http listening:18888")
-	httpServer.Addr = ":18888"
-	log.Println(httpServer.ListenAndServe())
+	log.Println("start http listening:18443")
+	log.Println(http.ListenAndServeTLS(":18443", "server.crt", "server.key", nil))
 }

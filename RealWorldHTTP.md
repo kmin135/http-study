@@ -901,6 +901,7 @@ curl --tlsv1.3 https://google.com
 curl -v --cert-status https://google.com
 
 # -k, --insecure : 자가 서명 인증서라도 오류가 되지 않는다.
+# 대상 호스트 확인은 생략하고 통신 경로 암호화만 이용한다고 볼 수 있음
 ```
 
 #### 해시 함수
@@ -1559,3 +1560,161 @@ res.setHeader('Access-Control-Allow-Credentials', 'true');
 
 * OAuth 2.0 을 기반으로 인증까지 사용할 수 있게 확장한 규격
 * 특정 서비스에 "구글로 로그인하기" 같은 기능으로 가입하는게 이에 해당함
+
+# 6. Go 언어를 이용한 HTTP1.1 클라이언트 구현
+
+## 인증서 만들기
+
+```bash
+# 1. 자기 서명의 루트 인증기관 인증서 작성. 1개만 만들면 됨
+## RSA 2048 bits 비밀키 생성
+## rsa 이외에도 타원 곡선 암호 (ECDSA) 등을 지원
+openssl genrsa -out ca.key 2048
+# 인증서 서명 요청 (CSR) 작성
+## 이 때 소재지 정보(국가, 도/주, 도시명), 조직정보 등 다양한 정보를 물어봄
+## Challenge password는 인증서 파기 때 쓰임
+## -config 옵션으로 미리 작성해둔 정보를 파라미터로 전달하는 것도 가능함
+openssl req -new -sha256 -key ca.key -out ca.csr
+# 인증서를 자신의 비밀 키로 서명하여 생성
+openssl x509 -in ca.csr -days 365 -req -signkey ca.key -sha256 -out ca.crt -extensions CA
+
+# 비밀키확인
+openssl rsa -in ca.key -text
+# CSR 확인
+openssl req -in ca.csr -text
+# 인증서 확인
+openssl x509 -in ca.crt -text
+```
+```bash
+# 2. 서버 인증서 생성. 서버 대수만큼 수행
+openssl genrsa -out server.key 2048
+# CSR 생성. CA와 달리 Common Name에 호스트 이름을 정확히 입력 (localhost 도 가능)
+## Common Name이 다르면 클라이언트가 연결 시도중 다른 서버와 연결된걸로 간주하고 연결 파기함
+## -nodes 를 설정하면 서버를 시작할 때 패스워드를 묻지 않음
+## 내의견) 인증서 발급 기관에 따라 요구하기도 함. 다만 웹서버들이 비번 입력 기능을 제공해서 문제없음
+openssl req -new -nodes -sha256 -key server.key -out server.csr
+# 인증서 생성. CA의 비밀키, 인증서를 입력하고 CA 관련 파라미터가 추가됨
+openssl x509 -req -days 365 -in server.csr -sha256 -out server.crt -CA ca.crt -CAkey ca.key -CAcreateserial -extensions Server
+```
+
+* 실제 서버설정에 필요한 것은 비밀키와 인증서
+* CSR 은 인증서 생성뒤에는 필요 없음
+
+|   | CA용  | 서버용  |
+|---|---|---|
+| 비밀키  | ca.key  | server.key  |
+| 인증서 서명 요청  | ca.csr  | server.csr  |
+| 인증서  | ca.crt  | server.crt  |
+
+## HTTPS 서버와 인증서 등록
+
+```bash
+# 서버 시작
+cd src/ssl
+# 인증서는 git 에 안 올렸으므로 테스트가 필요할 때 위 참고해서 생성
+go run tls-echo-server.go
+# 코드를 보면 ListenAndServeTLS 함수로 인증서, 비밀키가 추가 지정했을 뿐임
+```
+
+```bash
+# 그냥 호출하면 올바르지 않은 인증서라며 오류 발생
+curl https://localhost:18443/hi
+
+# 방법1. 인증기관 인증서를 인수로 지정함
+curl --cacert ca.crt https://localhost:18443/hi
+
+# 방법2. curl 이 사용하는 인증서 목록에 인증기관 인증서를 추가함
+curl --version
+## version 정보를 보면 libcurl 다음의 텍스트가 tls 에 사용하는 라이브러리임
+## OpenSSL : openssl, 주로 리눅스 계열
+### openssl이 표준으로 사용하는 인증서 번들에 추가한다.
+## Schannel : 윈도우
+## SecureTransport : 맥
+## 기타 등등
+## OS, 소프트웨어별로 설치 방법이 상이하므로 검색해서 설치
+
+# CA 인증서가 정상적으로 추가되었다면 오류없이 실행됨
+curl https://localhost:18443/hi
+
+# 방법3. 호스트 확인을 생략하고 통신 경로 암호화만 이용
+## 임시 테스트용으로만 사용
+curl --insecure https://localhost:18443/hi
+```
+
+### golang 으로 호출해보기
+
+* golang은 기본적으로 OS에 등록된 루트 인증서를 참조하므로 앞의 방법대로 OS에 인증서를 등록하면 호출부에서 https 로만 지정하면 그대로 동작
+* OS에 추가하지 않고 아래와 같이 애플리케이션에서 직접 다루는 방법도 가능
+```golang
+cert, err := ioutil.ReadFile("ca.crt")
+if err != nil {
+  panic(err)
+}
+certPool := x509.NewCertPool()
+certPool.appendCertsFromPEM(cert)
+tlsConfig := &tls.Config{
+  RootCAs: certPool,
+}
+tlsConfig.BuildNameToCertificate()
+
+client := &http.Client{
+  Transport: &http.Transport{
+    TLSClientConfig: tlsConfig,
+  },
+}
+
+resp, err := client.Get("https://localhost:18443")
+```
+
+* rootCA 목록에 직접만든 인증기관 인증서를 등록함을 알 수 있음
+* 또는 curl의 insecure 옵션같은 방법도 가능
+```golang
+tlsConfig := &tls.Config{
+  InsecureSkipVerify: true,
+}
+```
+* 용어참고
+  * x509 : ISO 에서 정한 인증서 형식
+  * PEM (RFC 2459) : BASE64 로 부호화된 바이너리에 헤더와 푸터를 붙인 데이터 구조. 동영상, 음악 파일에서 말하는 컨네이너에 해당하며 흔히 암호키, 인증서 서명 요청, 인증서에 각각 key, csr, crt 확장자를 부여하는 경우가 있는데 파일 컨테이너로는 모두 PEM을 이용하므로 사이트에 따라서는 모두 pem 확장자를 쓰기도 함
+
+## 클라이언트 인증서
+
+* 보통 TLS 는 서버쪽에만 인증서가 있음
+* 추가로 서버가 클라이언트에도 인증서를 요구하는 방식도 가능함
+```golang
+// 서버측에서 클라이언트 인증서를 요구하도록 함 
+server := &http.Server{
+  TLSConfig: &tls.Config{
+    // 기본값은 NoClientCert (클라이언트에 인증서 요구하지 않음) 임
+    // 다양한 옵션이 있는데 아래가 가장 엄격한 조건
+    ClientAuth: tls.RequireAndVeritfyClientCert,
+    MinVersion: tls.VersionTLS12,
+  },
+  Addr: ":18443",
+}
+// 중략
+server.ListenAndServeTLS("server.crt", "server.key")
+```
+
+```bash
+# 클라이언트 인증서 생성
+# 비밀키, csr은 서버인증서와 동일한 방식으로 생성
+# 인증서 생성은 extensions 부분이 다름
+openssl x509 -req -days 365 -in client.csr -sha256 -out client.crt -CA ca.crt -CAkey ca.key -CAcreateserial -extensions Client
+```
+
+```golang
+// 클라이언트 
+
+// 아래와 같이 클라이언트 인증서, 비밀키를 설정함
+cert, err := tls.LoadX509KeyPair("client.crt", "client.key")
+// 중략
+client := &http.Client{
+  Transport: &http.Transport{
+    TLSClientConfig: &tls.Config{
+      Certificates: []tls.Certificate{cert},
+    },
+  },
+}
+// 이하 호출은 동일
+```
