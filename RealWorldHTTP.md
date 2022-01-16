@@ -1749,4 +1749,73 @@ client := &http.Client{
 ## 7.2 Fetch API
 
 * https://developer.mozilla.org/ko/docs/Web/API/Fetch_API
-* 
+* (원격지) 리소스를 Fetch 하는 API. Fetch 는 가져오다 라는 의미지만 POST 도 가능하니 서버 액세스를 위한 인터페이스 정도로 받아들이자
+* 기존의 XMLHttpRequest 와 유사한 역할을 하나 더 정밀한 제어와 발전된 기능을 제공함
+
+### Fetch API의 주요 특징
+
+1. XHR 보다 CORS 제어가 간편함
+2. JS의 모던 비동기 처리 기법인 Promise 를 따름
+3. 캐시, 리다이렉트, 리퍼러 정책 설정 제공
+4. Service Worker 내에서 사용 가능
+
+### Fetch API 상세 설명
+
+```javascript
+fetch("news.json", {
+  method: 'GET',
+  mode: 'cors',
+  credentials: 'include',
+  cache: 'default',
+  headers: {
+      'Content-Type': 'application/json'
+  }
+}).then((response) => {
+    return response.json();
+}).then((json) => {
+    console.log(json);
+});
+```
+
+* 지원 데이터 타입 : arrayBuffor(), blob(), formData(), json(), text()
+* CORS 모드 : cors, same-origin, no-cors, navigate, websocket, cors-with-forced-preflight 등
+  * XHR의 경우 cors (다른 오리진 서버로 액세스 허용) 만 가능
+* 쿠키제한 (credentials) : omit, same-origin, include 등
+* CORS, 쿠키의 경우 기본적으로 XHR 대비 엄격한 보안 정책이 적용되어있으며 사용자가 필요에 따라 정책을 변경하는 구조임
+
+### Fetch API 만 가능한 것
+
+* 캐시 제어
+  * 캐시 상태와 관계 없이 항상 서버에 요청을 보낸다던가 캐시가 만료되어도 캐시를 강제한다던가 세밀한 제어가 가능함
+* 리다이렉트 제어
+  * 기본은 리다이렉트 하지만 안 하게도 할 수 있음.
+* Service Worker
+  * Service Worker 에서 외부 서비스에 접속할 때는 XHR 사용불가하며 Fetch API만 가능
+  * Service Worker 란 웹을 애플리케이션의 기능성을 갖도록 하고자 하는 프로그레시브 웹 앱 (PWA) 의 일환으로서 개발된 것. 애플리케이션의 생애주기와 통신 내용을 제어할 수 있게 해줌. 오프라인으로 동작하거나 통지를 다룰 수 있음. 기존의 프론트엔드와 서버 사이에서 동작하는 중간 레이어라 볼 수 있음. 
+
+## 7.3 Server-Sent Events (SSE)
+
+* SSE는 서버 푸시 기술로서 HTML5의 기능으로 정의되어있음.
+* HTTP/1.1의 청크를 기반으로 함.
+* 롱 폴링과 청크 응답을 조합하여 한 번의 요청에 대해 서버에서 여러 이벤트 전송을 제공함
+* 청크 방식을 이용하나 HTTP 위에 이벤트스트림이라는 별도의 텍스트 프로토콜을 실었음. MIME 타입은 text/event-stream 임
+* 서버 -> 브라우저로 단방향 통신만 가능함
+* 이 때문에 브라우저에 알림, 주식 시세 스트리밍 등에 유용함
+* 제약사항 : 텍스트(UTF-8) 만 지원하며 브라우저별로 최대 연결 제한이 있음 (HTTP 버전에 따라 다르나 1.1은 6개이므로 여러 탭을 열어 SSE를 사용하는 경우 문제가 있을 수 있음.)
+  * BASE64로 바이너리도 가능은 하겠으나 성능문제가 있으므로 이 경우 웹소켓을 이용하는게 좋음
+* 자동 재연결 지원
+
+## 7.4 WebSocket
+
+* 실시간 양방향 통신을 제공하는 프로토콜
+* HTTP와는 별도의 프로토콜임.
+* HTTP의 프로토콜 업그레이드 기능을 이용해 먼저 HTTP 로 프로토콜 업그레이드 요청을 보낸 뒤 서버응답을 받은 다음 websocket 으로 포로토콜을 변경하여 동작함
+* HTTP와는 달리 스테이트풀이므로 LB 가 있는 경우 웹소켓 대응 제품을 사용하는 것을 검토해야함
+* 실시간 양방향이 가능하므로 채팅, 게임등의 구현에 유용함
+* 텍스트, 바이너리 데이터를 모두 지원
+* 자동 재연결을 지원하지 않아 자체 구현 필요.
+* HTTP와는 별도의 프로토콜이므로 패킷 검사 기능이 있는 일부 방화벽에서 문제가 발생할 수 있음
+
+> SSE vs WebSocket 
+> 
+> 앞서 정리한 대로 특징이 다르므로 사용목적에 따라 골라 사용하면 됨.
