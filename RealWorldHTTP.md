@@ -1919,3 +1919,217 @@ fetch("news.json", {
   * 목표는 HLS와 거의 같고 HLS를 대폭 확장한 것
 * 둘 다 엄밀히는 점진적 다운로드를 통한 스트리밍 방식임.
   * DASH의 경우 개발자도구로 보고 있으면 최초 mpd 파일을 받아오는데 여기에 스트리밍을 위한 메타데이터가 정의되어있음. bandwidth에 따른 소스 목록, 코덱, 길이 등의 데이터를 확인할 수 있음. 스트리밍 중에는 점진적으로 m4v (영상), m4a (음성) 데이터를 받아옴을 알 수 있음.
+
+# Ch10 보안: 브라우저를 보호하는 HTTP의 기능
+
+* 일반적인 웹상의 해킹은 브라우저 취약점을 노리거나 웹사이트의 HTML 및 자바스크립트 취약점을 노림
+
+## Cross Site Scripting (XSS)
+
+* `<script>alert('1');</script>` 등의 악의적인 스크립트를 심어 실행시키는 공격기법
+* 스크립트를 통한 다양한 공격이 시작점이 되므로 매우 위험한 공격
+* 예를 들면 세션쿠키 등의 중요 쿠키 탈취 등에 악용될 수 있음
+
+---
+
+* XSS 방어 방법
+* 서버단에서는 클라이언트가 보낸 데이터를 검사하여 sanitize (살균하다) 처리 후 사용하는 방법이 있음. 공격패턴 이스케이프라 할 수 있음.
+  * 블랙리스트 기반은 `onclick, <script>` 등의 키워드 기반으로 막는 방법인데 악의적인 공격패턴이 진화하므로 100% 방어가 거의 불가능함.
+    * `<p on='>' onclick='alert(1);>`, `jav&#x0A;ascript:alert('XSS');` 등 
+  * 화이트리스트 기반은 미리 지정해둔 태그와 속성만 허용하여 데이터를 재구성하는 방식임. 블랙리스트 대비 확실한 방어가 가능하나 정상적인 HTML까지 제거되지 않는지 확인이 필요함
+  * 데이터 사용, 저장전에 미리 처리하는 방식도 있고 일단 저장은 해두고 사용 전에 처리하는 방식도 가능
+* 클라이언트단의 라이브러리들도 sanitize 를 지원함. 서버단에서 모든 XSS 처리를 할 수도 있고 필요에 따라 클라이언트에서도 추가적인 처리를 할 수도 있음. 물론 이 경우 룰셋이 다르면 비정상적인 동작을 할 수 있으므로 충분한 테스트 필요.
+
+## 커맨드 인젝션, SQL 인젝션
+
+* XSS는 자바스크립트를 이용한 것이라면
+* 커맨드 인젝션은 서버단에서 os 명령을 실행시키는 등의 공격기법.
+  * `/etc/passwd` 같은 주요 파일에 접근을 시도한다거나 하는 공격기법.
+  * 중요 정보 유출은 물론 서버를 다운시킬 수도 있는 위험한 공격.
+* SQL 인젝션은 악의적인 파라미터를 넘겨 쿼리에서 의도치않은 결과를 발생시키는 공격기법.
+  * 예를 들면 `or 1 = 1` 같은 조건문을 붙이는 방식
+  * 대량 데이터 유출로 이어질 수도 있고 심각한 서버 부하를 발생시킬 수도 있음.
+  * 대개 현대적인 SQL Mapping 라이브러리나 ORM을 권장방식에 따라 사용하면 기본적으로 방어됨.
+  * 그 외에 조건문을 직접 제어하는 경우는 주의 필요
+* 이것 또한 마찬가지로 클라이언트에서 넘어온 모든 데이터는 악의적인 데이터라 가정하고 이스케이프하여 사용해야함.
+
+
+
+## 중간자 공격 (MITM)
+
+* man-in-the-middle attack
+* 프록시 등의 통신 중계장치를 이용해 통신 내용을 빼가는 공격 기법
+* TLS 를 이용하는 것이 가장 확실한 방어 수단임.
+  * TLS는 통신 경로를 신뢰할 수 없는 상태에서도 보안을 유지하며 통신할 수 있게 하는 메커니즘임.
+  * 단, 중간자의 인증서가 실수나 해킹으로 허용되면 방어가 불가능하므로 주의.
+    * 내의견) 회사에서 설치하는 사업장 인증서가 사설 중간자 인증서라 볼 수 있을 듯.
+
+
+
+## 세션 하이재킹
+
+* 보통 세션 쿠키 (JSESSIONID 등) 을 탈취하는 공격
+* 중간자 공격과 XSS 를 통한 공격이 대표적임
+* 중간자 공격은 HTTPS 를 통해 방어
+* XSS 는 쿠키에 httpOnly, secure 속성을 적용하여 방어할 수 있음
+
+
+
+## 사이트 간 요청 위조 (CSRF)
+
+* Cross-Site Request Forgery
+* 사용자가 의도하지 않는 서버 요청을 관계없는 페이지나 사이트에 보내게 하는 공격 기법
+  * 일본에서는 CSRF를 이용해 다른 사용자가 살해 예고를 하도록 조작하여 범인으로 지목되는 사건이 있었다고 함.
+* 방어기법으로 HTTP의 stateless 성을 제한하는 방법을 주로 사용함
+* 예를 들면 form에 type이 hidden인 숨겨진 필드를 만들고 무작위로 생성한 토큰을 집어놓고 서버는 해당 토큰이 유효하지 않으면 모두 차단하는 방법이 있음.
+  * 웹 개발 프레임워크들이 보통 csrf 토큰 생성/검증을 지원함
+  * csrf 구현은 보통 hidden 필드를 쓰기때문에 토큰값으로 세션 토큰 값을 사용하지 말고 독립적인 csrf 용 토큰을 사용해야함. 이는 세션 하이재킹을 막기 위한 것임.
+* 쿠키에 SameSite 속성을 부여하면 cross origin 으로 쿠키를 전달하지 않아 csrf 방어효과가 있음. 원래 크롬 전용 기술이었으므로 모든 브라우저에서 동작할지는 확인 필요.
+
+
+
+## 클릭재킹
+
+* clickjacking
+* iframe 을 이용한 공격 기법
+* 정상 웹사이트 위에 악의적인 iframe을 투명한 레이어로 표시함으로써 악의적인 페이지를 조작하게 하는 등 사용자가 오인하도록 유도하는 공격기법
+* 방어수단으로 `X-Frame-Options` 헤더가 있음
+* 악용되는 것을 막고 싶은 정규 사이트에서 이 헤더를 전송하면 페이지가 iframe 내에서 이용되는 것을 방지함
+  * DENY : 프레임 내에서 이용되는 것을 거부
+  * SAMEORIGIN : 동일한 URL 이외의 프레임 내에서 사용되는 것을 거부
+  * ALLOW-FROM : 지정한 URL에서 호출될 때만 프레임 내 표시 허가
+
+
+
+## 리스트형 계정 해킹
+
+* 다양한 경로로 유출된 ID, 비밀번호를 목록을 가지고 다른 사이트에 로그인을 시도하는 공격 기법. 보통 사람들이 같은 ID, 비번을 쓰는 것을 이용한 공격기법. 특성상 TLS, HTTP 헤더 등으로 막을 수 없다는 것이 무서운 점.
+* 방어수단
+  * OTP 와 같은 2단계 인증
+  * IP 등을 이용한 위치 정보를 통해 의심되는 로그인의 경우 추가 인증 요구
+  * reCAPTCHA , 시간당 액세스 횟수 제한등으로 로봇을 이용한 대량 로그인 시도 방지
+
+
+
+## 다양한 공격 방어 기술
+
+* https://infosec.mozilla.org/guidelines/web_security
+
+  * 위 링크에 웹보안 가이드가 명시되어있음. 책의 내용도 거의 이 링크를 기반으로 한 것 같음. 아래는 대략적으로 정리한 것이고 상세한 것은 위 링크를 참조.
+
+* https://cheatsheetseries.owasp.org/cheatsheets/AJAX_Security_Cheat_Sheet.html
+
+  * owasp 는 ajax, sql injection 등 다양한 공격기법에 대한 더욱 상세한 설명과 방어 기법을 공개하고 있음
+  * owasp는 오픈소스 웹 애플리케이션 보안 프로젝트로서 보안과 관련된 다양한 연구, 발표 등을 수행함.
+
+* TLS
+
+  * 비용이 들지만 가장 기본이면서 가장 강력한 보안을 제공함. http 요청이 섞이면 위험도가 급상승하므로 모든 리소스를 tls로 통신하도록 하는 것이 중요함. 모던 브라우저들은 http가 섞일 경우 mixed content 정책에 의해 http 요청이 차단되는 것이 보통임.
+
+  * HTTP Strict Transport Security (HSTS) : 앞으로 접속할 때 HTTPS 로 접속해달라고 전달하는 기능. 브라우저는 내부에 이 헤더가 지정된 사이트 목록을 유지하면서 지정된 시간동안 (초단위) 자동으로 HTTPS 로 해당 사이트에 접속함. 당연히 해당 사이트 운영자는 HTTPS 요청이 유효하도록 인증서를 잘 관리해야함.
+
+    * `strict-transport-security: max-age=31536000`
+
+      ```
+      # HSTS 가 설정된 사이트를 http로 접속하면
+      http://infosec.mozilla.org/
+      
+      # 아래와 같은 응답을 받을 수 있었음
+      HTTP/1.1 307 Internal Redirect
+      Location: https://infosec.mozilla.org/
+      Non-Authoritative-Reason: HSTS
+      ```
+
+  * HTTPS 로 리다이렉션
+
+    * 요즘은 https 가 기본이지만 브라우저에서 주소만 치고 들어오면 http 로 동작하거나 사용자가 직접 http를 명시할 수도 있으므로 80 포트는 열어둬야함. 이런 경우에도 실질적인 모든 요청을 tls화 할 필요가 있음. 따라서 http로 들어온 최초 요청은 서버단의 설정으로 http -> https 로 리다이렉션하고 HSTS 설정을 해주면 향후에는 항상 https 로 요청이 들어오도록 할 수 있음.
+    * 리다이렉션만 걸어놓고 HSTS 는 안 써도 결과적으로 모두 https로 동작시킬 수는 있지만 HSTS 는 불필요한 http 요청이 서버로 들어오는 것을 줄일 수 있음.
+
+  * HTTP 공개 키 피닝
+
+    * 인증서의 공개키 목록을 로컬에 저장해두고 이후에 액세스할 때 서버의 인증서가 무단으로 변경되지 않았는지 확인하는 기능.
+    * mozilla 에서는 적용 난이도가 높고 효과는 낮아 꼭 필요한 경우에 한해 적용할 것을 권하고 있음.
+
+* 쿠키에 httpOnly 속성 부여
+
+  * javascript 에서 해당 속성이 부여된 쿠키에 접근할 수 없으므로 xss 등의 공격 내성이 높아짐
+
+* X-XSS-Protection 헤더
+
+  * 브라우저가 xss 공격 패턴을 감지하면 해당 공격을 중단시키거나 웹페이지 로딩 자체를 하지 않도록 지시하는 응답헤더
+  * 브라우저별로 동작이 다름. 보조용도로만 활용.
+  * 기존 정상 동작까지 공격으로 감지하여 차단할 수도 있기 때문에 적용에 주의 필요.
+  * CSP가 지원되는 브라우저들은 CSP로 대체가 가능함
+
+* Content-Security-Policy 헤더
+
+  * 웹사이트에서 사용할 수 있는 기능을 세밀하게 제어할 수 있는 헤더
+
+    ```python
+    # 모든 unsafe inline/eval 의 동작을 금지시킨다.
+    # 또한 모든 리소스를 https 로만 로딩할 수 있도록 지시한다.
+    Content-Security-Policy: default-src https:
+    # 모든 리소스 로딩, framing 차단
+    # API 에 권장됨
+    Content-Security-Policy: default-src 'none'; frame-ancestors 'none'
+    ```
+
+  * 위 예제는 기초적인 활용예제이고 더욱 세밀한 제어가 가능함
+
+  * `report-uri` 속성을 통해 브라우저가 검출한 위반 사항을 json 형식으로 수집할 서버를 지정할 수 있음.
+
+  * CSP 헤더는 너무 강력하여 기존 시스템을 마비시킬 우려가 있음. 이 경우 Content-Security-Policy-Report-Only 헤더를 사용하면 검사는 하되 동작은 중지하지 않게 할 수 있음. 이를 통해 단계적으로 CSP를 적용할 수 있음.
+
+*  github 메인화면의 보안 관련 헤더들
+
+```
+# 22-02-05 에 얻은 결과
+# 쿠키의 경우 모두 secure, httpOnly, SameSite 설정이 되어있음
+# CSP 헤더가 매우 세부적으로 정의되어 있음
+# HSTS가 설정되어 있음
+# x-xss-protection 과 같은 비표준 보안헤더들이 설정되어 있음
+
+set-cookie: _gh_sess=sHZ6OTNmrOUxs%2BQ%2BhadhtcfFGZs%2FhUTDZY565Bmc0rAQ0nybC0WdFkUDcllwMBa%2Ba3t0kpq6lGLl3PmwOYhRz5sTwt1xDixeBMAFEGtTS3fsSDq4CtZSaZYc66cXZdQwfgLJbMiuNKj5VEx%2B3W0kxMnqjwkYOXX9Or6WxTtdwexsPSZLNwGUmznRktBAkY6f--mDGAvSAaVfN00keZ--yZsizP0LJfE96JVqLQv6gw%3D%3D; path=/; secure; HttpOnly; SameSite=Lax
+content-security-policy: default-src 'none'; base-uri 'self'; block-all-mixed-content; child-src github.com/assets-cdn/worker/ gist.github.com/assets-cdn/worker/; connect-src 'self' uploads.github.com objects-origin.githubusercontent.com www.githubstatus.com collector.githubapp.com collector.github.com api.github.com github-cloud.s3.amazonaws.com github-production-repository-file-5c1aeb.s3.amazonaws.com github-production-upload-manifest-file-7fdce7.s3.amazonaws.com github-production-user-asset-6210df.s3.amazonaws.com cdn.optimizely.com logx.optimizely.com/v1/events translator.github.com wss://alive.github.com github.githubassets.com; font-src github.githubassets.com; form-action 'self' github.com gist.github.com objects-origin.githubusercontent.com; frame-ancestors 'none'; frame-src render.githubusercontent.com viewscreen.githubusercontent.com notebooks.githubusercontent.com; img-src 'self' data: github.githubassets.com identicons.github.com collector.githubapp.com collector.github.com github-cloud.s3.amazonaws.com secured-user-images.githubusercontent.com/ *.githubusercontent.com customer-stories-feed.github.com spotlights-feed.github.com; manifest-src 'self'; media-src github.com user-images.githubusercontent.com/ github.githubassets.com; script-src github.githubassets.com; style-src 'unsafe-inline' github.githubassets.com; worker-src github.com/assets-cdn/worker/ gist.github.com/assets-cdn/worker/
+referrer-policy: origin-when-cross-origin, strict-origin-when-cross-origin
+strict-transport-security: max-age=31536000; includeSubdomains; preload
+x-content-type-options: nosniff
+x-frame-options: deny
+x-xss-protection: 0
+```
+
+
+
+
+
+## CORS
+
+* cross-origin resource sharing : 교차 출처 리소스 공유. 오리진 (출처, 도메인) 사이에 자원을 공유하는 방법
+* CORS 는 클라이언트에서 서버로 액세스하기 직전까지의 권한 확인 프로토콜이라 볼 수 있음.  보호의 대상은 API 서버임.
+* `fetch` 함수 등으로 요청을 할 때 코드에서는 드러나지 않고 암묵적으로 CORS 처리가 발생함
+* 크게 simple cross-origin request 와 preflight 요청을 수반하는 actual request 로 나눌 수 있음.
+* simple cross-origin request 의 조건
+  * GET, POST, HEAD 중 하나의 메서드
+  * 심플 헤더만 사용 (Accept, Accept-Language, Content-Language, Content-Type)
+  * Content-Type을 포함하며 application/x-www-form-urlencoded, multipart/form-data, text/plain 중 하나
+  * 위 3개 조건을 모두 만족해야하며 1개라도 안 맞으면 preflight 가 필요함
+* preflight 요청
+  * 클라이언트는 먼저 OPTIONS 메서드로 아래의 헤더들을 보내 요청을 보냄
+    * Access-Control-Request-Method (통신 허용을 요청할 메서드), Access-Control-Request-Headers (통신 허용을 요청할 헤더), Origin (통신 출처 웹페이지의 도메인 이름)
+  * 서버는 이에 대해 아래의 헤더로 통해 응답. 허용하지 않는 경우 각 헤더를 부여하지 않을 수도 있고 401 Forbidden으로 반환하기도 함
+    * Access-Control-Allow-Orign : 통신을 허용할 오리진 이름. 와일드카드`*` 로 모든 도메인을 허용할 수도 있음. 단 와일드카드를 쓰면 쿠키를 못 쓰는 것으로 보임(확인 필요)
+    * Access-Control-Allow-Method : 대상 URL에 허용하는 메서드 이름. preflight가 불필요한 간단 요청일 때는 생략 가능
+    * Access-Control-Allow-Headers : 대상 URL에 허용하는 헤더 목록. preflight가 불필요한 간단 요청일 때는 생략 가능
+    * Access-Control-Allow-Credentials : 쿠키 등의 자격 증명을 서버가 받는 것을 허용할 때 부여. 값으로는 true만 설정 가능.
+    * Access-Control-Expose-Headers : 서버에서 반환하는 응답 헤더 중 스크립트에서 참조할 수 있는 헤더 이름 목록 반환
+    * Access-Control-Max-Age 응답 헤더 : preflight 요청은 항상 필요한 것은 아니고 이 헤더로 지정한 초만큼 캐싱하여 통신을 생략하도록 설정할 수 있음.
+  * 웹 브라우저는 preflgiht 요청, 응답을 통해 통신할 수 있는지 판단하고 보낼 내용이 모두 허용되면 실제 통신을 시작하고 아니면 오류를 반환함.
+* 크로스 오리진은 기본적으로 쿠키를 송수신하지 않음.
+  * 보내려면 클라이언트도 보낼 것을 설정하고 (Fetch API는 credentials: 'include', XHR은 xhr.withCredential=true) 서버도 허용해야함.
+
+
+
+## 마치며
+
+* 공격 기법은 늘 새로워지므로 최신 소식을 받을 수 있는 채널이 필요함
+* 정기적으로 전문 보안 업체를 통한 점검을 받는 것도 필요
